@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 // -----------------------------------------------
-// REGISTER
+// REGISTER // nouveau new new
 // -----------------------------------------------
 exports.register = async (req, res) => {
   try {
@@ -69,10 +69,23 @@ exports.getUsers = async (req, res) => {
 
 // -----------------------------------------------
 // GET ONE USER
+// Manager peut consulter n'importe quel utilisateur
+// User peut consulter uniquement son propre profil
 // -----------------------------------------------
 exports.getUser = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select("-password");
+    const requestedUserId = req.params.id;
+    const currentUserId = req.user.id; // ID de l'utilisateur connecté (depuis le token)
+    const userRole = req.user.role;
+
+    // Vérification des permissions
+    if (userRole !== "manager" && requestedUserId !== currentUserId) {
+      return res.status(403).json({ 
+        message: "Accès refusé : vous ne pouvez consulter que votre propre profil" 
+      });
+    }
+
+    const user = await User.findById(requestedUserId).select("-password");
     if (!user)
       return res.status(404).json({ message: "Utilisateur introuvable" });
 
@@ -84,18 +97,42 @@ exports.getUser = async (req, res) => {
 
 // -----------------------------------------------
 // UPDATE USER
+// Manager peut modifier n'importe quel utilisateur
+// User peut modifier uniquement son propre profil
 // -----------------------------------------------
 exports.updateUser = async (req, res) => {
   try {
+    const requestedUserId = req.params.id;
+    const currentUserId = req.user.id;
+    const userRole = req.user.role;
+
+    // Vérification des permissions
+    if (userRole !== "manager" && requestedUserId !== currentUserId) {
+      return res.status(403).json({ 
+        message: "Accès refusé : vous ne pouvez modifier que votre propre profil" 
+      });
+    }
+
     const updates = req.body;
+
+    // Empêcher un utilisateur normal de changer son propre rôle
+    if (userRole !== "manager" && updates.role) {
+      return res.status(403).json({ 
+        message: "Vous ne pouvez pas modifier votre propre rôle" 
+      });
+    }
 
     if (updates.password) {
       updates.password = await bcrypt.hash(updates.password, 10);
     }
 
-    const user = await User.findByIdAndUpdate(req.params.id, updates, {
+    const user = await User.findByIdAndUpdate(requestedUserId, updates, {
       new: true,
     }).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "Utilisateur introuvable" });
+    }
 
     res.json({ message: "Utilisateur mis à jour", user });
   } catch (err) {
@@ -104,7 +141,7 @@ exports.updateUser = async (req, res) => {
 };
 
 // -----------------------------------------------
-// DELETE USER
+// DELETE USER (manager only)
 // -----------------------------------------------
 exports.deleteUser = async (req, res) => {
   try {
